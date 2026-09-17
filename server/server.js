@@ -631,11 +631,18 @@ app.get('/api/v1/portal/shop/:slugOrId', async (req, res) => {
   const portalUrl = `${req.protocol}://${req.get('host')}/portal/${shop.slug}`;
   let qrCodeDataUrl = '';
   try {
-    qrCodeDataUrl = await QRCode.toDataURL(portalUrl, { width: 350, margin: 2 });
+    if (!global._qrCache) global._qrCache = new Map();
+    if (global._qrCache.has(portalUrl)) {
+      qrCodeDataUrl = global._qrCache.get(portalUrl);
+    } else {
+      qrCodeDataUrl = await QRCode.toDataURL(portalUrl, { width: 350, margin: 2 });
+      global._qrCache.set(portalUrl, qrCodeDataUrl);
+    }
   } catch (e) {
     console.error('QR Gen error:', e);
   }
 
+  res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=120');
   res.json({
     shop: {
       id: shop.id,
@@ -2006,8 +2013,18 @@ app.get('/api/v1/support/enquiries', (req, res) => {
 // Serve frontend build in production
 const DIST_DIR = path.join(__dirname, '../dist');
 if (fs.existsSync(DIST_DIR)) {
-  app.use(express.static(DIST_DIR));
+  app.use(express.static(DIST_DIR, {
+    maxAge: '7d',
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('.html')) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      } else if (filePath.includes('assets/')) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      }
+    }
+  }));
   app.get('*', (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.sendFile(path.join(DIST_DIR, 'index.html'));
   });
 }

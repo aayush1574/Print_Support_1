@@ -1,20 +1,59 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   Printer, Upload, FileText, CheckCircle2, QrCode,
-  ShieldCheck, Check, Copy, ArrowRight, RefreshCw, Sparkles, FileUp, Zap, LayoutGrid, Sliders
+  ShieldCheck, Check, Copy, ArrowRight, RefreshCw, Sparkles, FileUp, Zap, LayoutGrid, Sliders,
+  Phone, User, AlertCircle
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { API_BASE } from '../config';
 import { FILE_INPUT_ACCEPT_STR, isImageFile } from '../utils/downloadHelper';
-import MultiPhotoComposerModal from '../components/MultiPhotoComposerModal';
-import DocumentEditorModal from '../components/DocumentEditorModal';
 import { compressFiles } from '../utils/imageCompressor';
+
+// Lazy-load heavy modals to optimize initial page load speed
+const MultiPhotoComposerModal = lazy(() => import('../components/MultiPhotoComposerModal'));
+const DocumentEditorModal = lazy(() => import('../components/DocumentEditorModal'));
 
 export default function CustomerPortalPage() {
   const { shopId = 'printsupport-hub' } = useParams();
-  const [shopData, setShopData] = useState(null);
-  const [loading, setLoading] = useState(true);
+
+  // Instant Shop Cache: Render immediately with zero delay/spinner
+  const getInitialShop = () => {
+    try {
+      const cached = sessionStorage.getItem(`pc_shop_${shopId}`);
+      if (cached) return JSON.parse(cached);
+    } catch (e) {}
+    return {
+      id: shopId === 'printsupport-hub' ? 'shop_demo' : shopId,
+      name: 'Print Support',
+      slug: shopId || 'printsupport-hub',
+      address: 'Vidisha, Madhya Pradesh (MP)',
+      upiId: 'printsupport@okaxis',
+      phone: '+91 72250 83904'
+    };
+  };
+
+  const [shopData, setShopData] = useState(getInitialShop);
+  const [loading, setLoading] = useState(false);
+
+  // Customer Contact State with localStorage caching for returning customers
+  const [customerPhone, setCustomerPhone] = useState(() => {
+    try {
+      return localStorage.getItem('pc_customer_phone') || '';
+    } catch (e) {
+      return '';
+    }
+  });
+  const [customerName, setCustomerName] = useState(() => {
+    try {
+      return localStorage.getItem('pc_customer_name') || '';
+    } catch (e) {
+      return '';
+    }
+  });
+  const [phoneError, setPhoneError] = useState('');
+  const phoneInputRef = useRef(null);
+  const phoneCardRef = useRef(null);
 
   // Order configuration state
   const [files, setFiles] = useState([]);
@@ -29,7 +68,9 @@ export default function CustomerPortalPage() {
 
   const fileInputRef = useRef(null);
 
+  // Background fetch to update shop rates or details without blocking UI
   useEffect(() => {
+    let isMounted = true;
     const fetchShopInfo = async () => {
       try {
         const controller = new AbortController();
@@ -38,35 +79,33 @@ export default function CustomerPortalPage() {
         clearTimeout(timeoutId);
         if (res.ok) {
           const data = await res.json();
-          if (data && data.shop) {
+          if (data && data.shop && isMounted) {
             setShopData(data.shop);
+            try {
+              sessionStorage.setItem(`pc_shop_${shopId}`, JSON.stringify(data.shop));
+            } catch (e) {}
             return;
           }
         }
       } catch (e) {
-        console.warn('Using default shop config:', e);
-      } finally {
-        setShopData((prev) => prev || {
-          id: 'shop_demo',
-          name: 'Print Support',
-          slug: shopId || 'printsupport-hub',
-          address: 'Vidisha, Madhya Pradesh (MP)',
-          upiId: 'printsupport@okaxis',
-          phone: '+91 72250 83904'
-        });
-        setLoading(false);
+        console.warn('Using cached or default shop config:', e);
       }
     };
     fetchShopInfo();
+    return () => { isMounted = false; };
   }, [shopId]);
 
-  // Helper to convert any File/Blob to Base64 Data URL
+  // High-performance helper: only generate Base64 thumbnail data URL for small images
   const fileToDataUrl = (file) => new Promise((resolve) => {
     if (!file) return resolve('');
-    const reader = new FileReader();
-    reader.onload = (e) => resolve(e.target.result || '');
-    reader.onerror = () => resolve('');
-    reader.readAsDataURL(file);
+    if (file.type && file.type.startsWith('image/') && file.size < 4 * 1024 * 1024) {
+      const reader = new FileReader();
+      reader.onload = (e) => resolve(e.target.result || '');
+      reader.onerror = () => resolve('');
+      reader.readAsDataURL(file);
+    } else {
+      resolve('');
+    }
   });
 
   // Handle file drop / upload with auto-compression & Base64 Data URL preservation
@@ -197,6 +236,31 @@ export default function CustomerPortalPage() {
       return;
     }
 
+    // MANDATORY MOBILE NUMBER CHECK: Must be exactly 10 digits
+    const cleanPhone = (customerPhone || '').replace(/\D/g, '');
+    if (cleanPhone.length !== 10) {
+      setPhoneError('Please enter your 10-digit mobile number before submitting the print order.');
+      if (phoneCardRef.current) {
+        phoneCardRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      setTimeout(() => {
+        phoneInputRef.current?.focus();
+      }, 250);
+      return;
+    }
+    setPhoneError('');
+
+    // Persist verified customer details in localStorage
+    try {
+      localStorage.setItem('pc_customer_phone', cleanPhone);
+      if (customerName.trim()) {
+        localStorage.setItem('pc_customer_name', customerName.trim());
+      }
+    } catch (e) {}
+
+    const formattedPhone = `+91 ${cleanPhone}`;
+    const finalCustomerName = customerName.trim() || 'Self-Service Customer';
+
     setSubmitting(true);
     try {
       const res = await fetch(`${API_BASE}/api/v1/jobs`, {
@@ -204,8 +268,8 @@ export default function CustomerPortalPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           shopId: shopData?.id || 'shop_demo',
-          customerName: 'Self-Service Customer',
-          customerPhone: '',
+          customerName: finalCustomerName,
+          customerPhone: formattedPhone,
           source: 'QR_PORTAL',
           paymentMethod: 'UPI',
           isUrgent,
@@ -216,7 +280,11 @@ export default function CustomerPortalPage() {
       if (res.ok) {
         const data = await res.json();
         if (data.success && data.order) {
-          setPlacedOrder(data.order);
+          setPlacedOrder({
+            ...data.order,
+            customerPhone: formattedPhone,
+            customerName: finalCustomerName
+          });
           confetti({ particleCount: 100, spread: 80, origin: { y: 0.6 } });
           setSubmitting(false);
           return;
@@ -236,7 +304,8 @@ export default function CustomerPortalPage() {
     const confirmedOrder = {
       id: `ORD-${orderNum}`,
       pickupToken: `${orderNum}`,
-      customerName: 'Self-Service Customer',
+      customerName: finalCustomerName,
+      customerPhone: formattedPhone,
       shopId: shopData?.id || 'shop_demo',
       finalAmount: Math.round(calculatedAmount),
       totalAmount: Math.round(calculatedAmount),
@@ -314,6 +383,13 @@ export default function CustomerPortalPage() {
               <div className="inline-block px-8 py-4 bg-gradient-to-b from-indigo-950/90 to-slate-950 border-2 border-indigo-500/60 rounded-2xl mt-3 shadow-2xl">
                 <span className="text-[11px] text-indigo-300 block font-bold uppercase tracking-wider">Your Counter Pickup Token</span>
                 <span className="text-4xl sm:text-5xl font-black font-mono text-white tracking-widest">{placedOrder.pickupToken}</span>
+                <div className="mt-2.5 pt-2.5 border-t border-indigo-500/30 flex items-center justify-center gap-2 text-xs text-indigo-200 flex-wrap">
+                  <Phone className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="font-mono font-bold text-white">{placedOrder.customerPhone || `+91 ${customerPhone}`}</span>
+                  {placedOrder.customerName && placedOrder.customerName !== 'Self-Service Customer' && (
+                    <span className="text-slate-400">· {placedOrder.customerName}</span>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -597,6 +673,132 @@ export default function CustomerPortalPage() {
               </div>
             </div>
 
+            {/* ═══ Card 3: Mandatory Customer Contact Details ═══ */}
+            {files.length > 0 && (
+              <div
+                ref={phoneCardRef}
+                className={`glass-card rounded-3xl p-4 sm:p-7 space-y-4 shadow-2xl transition-all duration-300 ${
+                  phoneError
+                    ? 'border-2 border-rose-500/80 bg-rose-950/20 shadow-rose-900/30 ring-2 ring-rose-500/20'
+                    : 'border-white/10 hover:border-indigo-500/40'
+                }`}
+              >
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${
+                      phoneError ? 'bg-rose-500/20 text-rose-400' : 'bg-indigo-600/30 text-indigo-400'
+                    }`}>
+                      <Phone className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h2 className="text-xs sm:text-base font-extrabold text-white uppercase tracking-wider flex items-center gap-1.5">
+                        <span>Customer Contact Details</span>
+                        <span className="text-rose-400 text-sm font-black">*</span>
+                      </h2>
+                      <p className="text-[11px] text-slate-400">
+                        Mandatory for print queue tracking & counter pickup verification
+                      </p>
+                    </div>
+                  </div>
+                  <span className={`text-[10px] sm:text-[11px] font-bold px-2.5 py-1 rounded-full border transition-all ${
+                    customerPhone.replace(/\D/g, '').length === 10
+                      ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 shadow-sm shadow-emerald-500/20'
+                      : 'bg-amber-500/10 text-amber-400 border-amber-500/30 animate-pulse'
+                  }`}>
+                    {customerPhone.replace(/\D/g, '').length === 10 ? '✓ Mobile Verified' : 'Mobile Required'}
+                  </span>
+                </div>
+
+                {/* Error Banner if User attempted submission without 10-digit mobile */}
+                {phoneError && (
+                  <div className="p-3.5 rounded-xl bg-rose-500/15 border border-rose-500/40 flex items-center gap-2.5 text-rose-300 text-xs font-semibold animate-pulse">
+                    <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+                    <span>{phoneError}</span>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 sm:gap-4 pt-1">
+                  {/* Mobile Number Input (Mandatory) */}
+                  <div>
+                    <label className="text-slate-300 block mb-1.5 font-semibold text-xs flex items-center justify-between">
+                      <span>Mobile Number <strong className="text-rose-400">*</strong></span>
+                      <span className="text-[10px] text-slate-400">10-Digit India (+91)</span>
+                    </label>
+                    <div className="relative flex items-center">
+                      <div className="absolute left-3 flex items-center gap-1 pointer-events-none text-slate-400 font-medium text-xs sm:text-sm select-none">
+                        <span className="text-sm sm:text-base leading-none">🇮🇳</span>
+                        <span className="font-mono text-slate-200 font-bold text-xs sm:text-sm">+91</span>
+                        <span className="text-slate-600 font-light">|</span>
+                      </div>
+                      <input
+                        ref={phoneInputRef}
+                        type="tel"
+                        inputMode="numeric"
+                        maxLength={10}
+                        value={customerPhone}
+                        onChange={(e) => {
+                          const digitsOnly = e.target.value.replace(/\D/g, '').slice(0, 10);
+                          setCustomerPhone(digitsOnly);
+                          if (digitsOnly.length === 10) {
+                            setPhoneError('');
+                            try { localStorage.setItem('pc_customer_phone', digitsOnly); } catch (err) {}
+                          }
+                        }}
+                        placeholder="98765 43210"
+                        className={`w-full pl-20 sm:pl-22 pr-10 py-3 rounded-xl bg-slate-900/90 text-white font-mono text-sm tracking-widest placeholder:text-slate-600 focus:outline-none transition-all ${
+                          phoneError
+                            ? 'border-2 border-rose-500 focus:ring-2 focus:ring-rose-500/30'
+                            : customerPhone.replace(/\D/g, '').length === 10
+                              ? 'border border-emerald-500/70 focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/20'
+                              : 'border border-slate-700 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20'
+                        }`}
+                      />
+                      {customerPhone.replace(/\D/g, '').length === 10 && (
+                        <div className="absolute right-3 text-emerald-400 pointer-events-none">
+                          <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-[10px] sm:text-[11px] text-slate-400 mt-1.5 flex items-center justify-between">
+                      <span>Counter verification will use this number</span>
+                      {customerPhone && customerPhone.length < 10 ? (
+                        <span className="text-amber-400 font-mono font-bold">{10 - customerPhone.length} more digit(s) needed</span>
+                      ) : customerPhone.length === 10 ? (
+                        <span className="text-emerald-400 font-semibold">Ready to print</span>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {/* Customer Name Input (Optional) */}
+                  <div>
+                    <label className="text-slate-300 block mb-1.5 font-semibold text-xs flex items-center justify-between">
+                      <span>Your Name (Optional)</span>
+                      <span className="text-[10px] text-slate-500">For counter callout</span>
+                    </label>
+                    <div className="relative flex items-center">
+                      <div className="absolute left-3 text-slate-500 pointer-events-none">
+                        <User className="w-4 h-4" />
+                      </div>
+                      <input
+                        type="text"
+                        maxLength={40}
+                        value={customerName}
+                        onChange={(e) => {
+                          setCustomerName(e.target.value);
+                          try { localStorage.setItem('pc_customer_name', e.target.value); } catch (err) {}
+                        }}
+                        placeholder="e.g. Aayush Sharma"
+                        className="w-full pl-9 pr-3 py-3 rounded-xl bg-slate-900/90 border border-slate-700 text-white text-sm placeholder:text-slate-600 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                      />
+                    </div>
+                    <p className="text-[10px] sm:text-[11px] text-slate-400 mt-1.5">
+                      Printed on your counter pickup token for identification
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Main Submit Print Order Button */}
             {files.length > 0 && (
               <div className="pt-2">
@@ -604,34 +806,43 @@ export default function CustomerPortalPage() {
                   type="button"
                   onClick={() => handlePlaceOrder()}
                   disabled={submitting}
-                  className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-indigo-600 via-blue-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white font-extrabold text-sm shadow-2xl shadow-indigo-600/40 flex items-center justify-center gap-2.5 transition-all hover:scale-[1.01] active:scale-98 disabled:opacity-50 border border-indigo-400/30"
+                  className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-indigo-600 via-blue-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white font-extrabold text-sm shadow-2xl shadow-indigo-600/40 flex items-center justify-center gap-2.5 transition-all hover:scale-[1.01] active:scale-98 disabled:opacity-50 border border-indigo-400/30 cursor-pointer"
                 >
                   <Printer className="w-5 h-5" />
-                  <span>{submitting ? 'Placing Order in Queue...' : `Submit Print Order (${totalPages} Pages)`}</span>
+                  <span>
+                    {submitting
+                      ? 'Placing Order in Queue...'
+                      : customerPhone.replace(/\D/g, '').length !== 10
+                        ? `Enter Mobile & Submit Print (${totalPages} Pages)`
+                        : `Submit Print Order (${totalPages} Pages)`}
+                  </span>
                   <ArrowRight className="w-5 h-5" />
                 </button>
               </div>
             )}
 
-            {/* Multi-Photo Composer Modal */}
-            <MultiPhotoComposerModal
-              isOpen={isMultiPhotoOpen}
-              onClose={() => setIsMultiPhotoOpen(false)}
-              onAddComposedItem={handleAddComposedItem}
-            />
+            {/* Modals wrapped in Suspense for instant code-splitting */}
+            <Suspense fallback={null}>
+              {isMultiPhotoOpen && (
+                <MultiPhotoComposerModal
+                  isOpen={isMultiPhotoOpen}
+                  onClose={() => setIsMultiPhotoOpen(false)}
+                  onAddComposedItem={handleAddComposedItem}
+                />
+              )}
 
-            {/* Document Editor Modal for Rotate / Filters / PDF */}
-            {editingItem && (
-              <DocumentEditorModal
-                item={editingItem}
-                isOpen={isEditorOpen}
-                onClose={() => {
-                  setIsEditorOpen(false);
-                  setEditingItem(null);
-                }}
-                onSave={handleSaveEditedItem}
-              />
-            )}
+              {editingItem && (
+                <DocumentEditorModal
+                  item={editingItem}
+                  isOpen={isEditorOpen}
+                  onClose={() => {
+                    setIsEditorOpen(false);
+                    setEditingItem(null);
+                  }}
+                  onSave={handleSaveEditedItem}
+                />
+              )}
+            </Suspense>
           </>
         )}
 
@@ -654,7 +865,9 @@ export default function CustomerPortalPage() {
                 </span>
               </div>
               <p className="text-[10px] sm:text-[11px] text-slate-400 truncate">
-                Ready for instant print counter pickup
+                {customerPhone.replace(/\D/g, '').length === 10
+                  ? `Mobile: +91 ${customerPhone} · Ready to submit`
+                  : '⚠️ Mobile number required to submit'}
               </p>
             </div>
           </div>
@@ -662,10 +875,16 @@ export default function CustomerPortalPage() {
             type="button"
             onClick={() => handlePlaceOrder()}
             disabled={submitting}
-            className="px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl bg-gradient-to-r from-indigo-600 via-blue-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-extrabold text-xs sm:text-sm shadow-lg shadow-indigo-600/40 flex items-center gap-2 transition-all hover:scale-[1.03] active:scale-95 disabled:opacity-50 flex-shrink-0 border border-indigo-400/30"
+            className="px-4 sm:px-6 py-2.5 sm:py-3 rounded-xl bg-gradient-to-r from-indigo-600 via-blue-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-extrabold text-xs sm:text-sm shadow-lg shadow-indigo-600/40 flex items-center gap-2 transition-all hover:scale-[1.03] active:scale-95 disabled:opacity-50 flex-shrink-0 border border-indigo-400/30 cursor-pointer"
           >
             <Printer className="w-4 h-4" />
-            <span>{submitting ? 'Placing...' : 'Submit Print Order'}</span>
+            <span>
+              {submitting
+                ? 'Placing...'
+                : customerPhone.replace(/\D/g, '').length !== 10
+                  ? 'Enter Mobile'
+                  : 'Submit Print Order'}
+            </span>
             <ArrowRight className="w-4 h-4 hidden sm:inline" />
           </button>
         </div>

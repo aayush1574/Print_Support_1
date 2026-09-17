@@ -192,6 +192,14 @@ async function runTests() {
     assert(createJobRes.statusCode === 200, 'Job creation with Base64 image payload responds 200 OK');
     const createdJobData = JSON.parse(createJobRes.body);
     assert(createdJobData.success === true && createdJobData.order && createdJobData.order.items[0].fileUrl.startsWith('/uploads/files-'), 'Base64 image ingested and persisted to disk URL', createdJobData.order?.items?.[0]?.fileUrl);
+    assert(createdJobData.order?.customerPhone === '+91 99999 88888', 'Customer mobile number preserved in order', createdJobData.order?.customerPhone);
+
+    // Check QR Portal Shop Endpoint Caching Header
+    const portalRes = await makeRequest(`/api/v1/portal/shop/${shopId}`);
+    assert(portalRes.statusCode === 200, 'Customer Portal shop endpoint responds 200 OK');
+    assert(Boolean(portalRes.headers['cache-control']), 'Portal shop endpoint has Cache-Control header', portalRes.headers['cache-control']);
+    const portalData = JSON.parse(portalRes.body);
+    assert(Boolean(portalData.shop && portalData.qrCodeDataUrl), 'Portal shop endpoint returns shop info and QR code');
 
   } catch (err) {
     console.error('API Test error:', err);
