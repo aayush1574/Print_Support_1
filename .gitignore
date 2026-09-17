@@ -7,3 +7,6 @@ server/uploads/*
 !server/uploads/.gitkeep
 server/data/uploads/*
 !server/data/uploads/.gitkeep
+database_export.sql
+render.yaml
+
