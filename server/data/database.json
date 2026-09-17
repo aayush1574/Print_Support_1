@@ -200,6 +200,138 @@
   ],
   "orders": [
     {
+      "id": "ORD-39",
+      "shopId": "shop_1788846558838",
+      "customerName": "Mobile QR Customer",
+      "customerPhone": "+91 99999 88888",
+      "source": "QR_PORTAL",
+      "status": "READY_TO_PRINT",
+      "paymentStatus": "PAID",
+      "paymentMethod": "UPI",
+      "upiRef": "UPI-664213622",
+      "totalAmount": 8,
+      "discountApplied": 0,
+      "finalAmount": 8,
+      "createdAt": "2026-09-17T16:56:53.622Z",
+      "updatedAt": "2026-09-17T16:56:53.622Z",
+      "pickupToken": "39",
+      "items": [
+        {
+          "fileName": "IMG-20260915-WA0009.png",
+          "fileUrl": "/uploads/files-1789664213621-959374617.png",
+          "dataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+          "pageCount": 1,
+          "copies": 1,
+          "colorMode": "COLOR",
+          "paperSize": "A4",
+          "id": "item_1",
+          "previewUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+          "computedPages": 1,
+          "subtotal": 8
+        }
+      ],
+      "assignedPrinterId": "prn_1788852018199_w3do",
+      "assignedPrinterName": "Hewlett-Packard HP LaserJet M1005",
+      "logs": [
+        {
+          "timestamp": "2026-09-17T16:56:53.622Z",
+          "text": "Order created via QR_PORTAL"
+        },
+        {
+          "timestamp": "2026-09-17T16:56:53.622Z",
+          "text": "UPI Payment of ₹8 verified"
+        }
+      ]
+    },
+    {
+      "id": "ORD-38",
+      "shopId": "shop_1788846558838",
+      "customerName": "Mobile QR Customer",
+      "customerPhone": "+91 99999 88888",
+      "source": "QR_PORTAL",
+      "status": "READY_TO_PRINT",
+      "paymentStatus": "PAID",
+      "paymentMethod": "UPI",
+      "upiRef": "UPI-664148027",
+      "totalAmount": 8,
+      "discountApplied": 0,
+      "finalAmount": 8,
+      "createdAt": "2026-09-17T16:55:48.027Z",
+      "updatedAt": "2026-09-17T16:55:48.027Z",
+      "pickupToken": "38",
+      "items": [
+        {
+          "fileName": "IMG-20260915-WA0009.png",
+          "fileUrl": "/uploads/files-1789664148027-956302698.png",
+          "dataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+          "pageCount": 1,
+          "copies": 1,
+          "colorMode": "COLOR",
+          "paperSize": "A4",
+          "id": "item_1",
+          "previewUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+          "computedPages": 1,
+          "subtotal": 8
+        }
+      ],
+      "assignedPrinterId": "prn_1788852018199_w3do",
+      "assignedPrinterName": "Hewlett-Packard HP LaserJet M1005",
+      "logs": [
+        {
+          "timestamp": "2026-09-17T16:55:48.027Z",
+          "text": "Order created via QR_PORTAL"
+        },
+        {
+          "timestamp": "2026-09-17T16:55:48.027Z",
+          "text": "UPI Payment of ₹8 verified"
+        }
+      ]
+    },
+    {
+      "id": "ORD-37",
+      "shopId": "shop_1788846558838",
+      "customerName": "Mobile QR Customer",
+      "customerPhone": "+91 99999 88888",
+      "source": "QR_PORTAL",
+      "status": "READY_TO_PRINT",
+      "paymentStatus": "PAID",
+      "paymentMethod": "UPI",
+      "upiRef": "UPI-664136261",
+      "totalAmount": 8,
+      "discountApplied": 0,
+      "finalAmount": 8,
+      "createdAt": "2026-09-17T16:55:36.261Z",
+      "updatedAt": "2026-09-17T16:55:36.261Z",
+      "pickupToken": "37",
+      "items": [
+        {
+          "fileName": "IMG-20260915-WA0009.png",
+          "fileUrl": "/uploads/files-1789664136260-384243866.png",
+          "dataUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+          "pageCount": 1,
+          "copies": 1,
+          "colorMode": "COLOR",
+          "paperSize": "A4",
+          "id": "item_1",
+          "previewUrl": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+          "computedPages": 1,
+          "subtotal": 8
+        }
+      ],
+      "assignedPrinterId": "prn_1788852018199_w3do",
+      "assignedPrinterName": "Hewlett-Packard HP LaserJet M1005",
+      "logs": [
+        {
+          "timestamp": "2026-09-17T16:55:36.261Z",
+          "text": "Order created via QR_PORTAL"
+        },
+        {
+          "timestamp": "2026-09-17T16:55:36.261Z",
+          "text": "UPI Payment of ₹8 verified"
+        }
+      ]
+    },
+    {
       "id": "ORD-36",
       "shopId": "shop_1788846558838",
       "customerName": "Mobile QR Customer",
@@ -2424,7 +2556,7 @@
   "counters": {
     "shop_main": 0,
     "global": 0,
-    "shop_1788846558838": 36
+    "shop_1788846558838": 39
   },
   "whatsappBot": {},
   "plans": [

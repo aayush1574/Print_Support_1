@@ -1,0 +1,84 @@
+# ==============================================================================
+# Print Support — Production Hostinger LiteSpeed / Apache Configuration
+# ==============================================================================
+
+# Enable Rewrite Engine
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # Force HTTPS
+  RewriteCond %{HTTPS} !=on
+  RewriteCond %{HTTP:X-Forwarded-Proto} !https
+  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+  # 1. Forward WebSockets (Real-time Print Queue & Spooler)
+  RewriteCond %{HTTP:Upgrade} websocket [NC]
+  RewriteCond %{HTTP:Connection} upgrade [NC]
+  RewriteRule ^(.*)$ ws://127.0.0.1:5000/$1 [P,L]
+
+  # 2. Proxy API and WebSocket endpoints directly to Node.js Express backend
+  RewriteRule ^api/(.*)$ http://127.0.0.1:5000/api/$1 [P,L]
+  RewriteRule ^health$ http://127.0.0.1:5000/health [P,L]
+  RewriteRule ^ws/(.*)$ ws://127.0.0.1:5000/ws/$1 [P,L]
+  RewriteRule ^ws$ ws://127.0.0.1:5000/ws [P,L]
+
+  # 3. Serve uploaded files if requested through backend
+  RewriteRule ^uploads/(.*)$ http://127.0.0.1:5000/uploads/$1 [P,L]
+
+  # 4. Single Page Application (React) Fallback for static builds
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteCond %{REQUEST_URI} !^/(api|health|ws|uploads)
+  RewriteRule ^ http://127.0.0.1:5000%{REQUEST_URI} [P,L]
+</IfModule>
+
+# CloudLinux / Phusion Passenger Configuration (Hostinger Node.js Application Manager)
+<IfModule mod_passenger.c>
+  PassengerAppType node
+  PassengerStartupFile server.js
+  PassengerAppLogFile passenger.log
+</IfModule>
+
+# Max Upload Size (100MB for multi-page print documents)
+LimitRequestBody 104857600
+
+# Security & CORS Headers
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set X-XSS-Protection "1; mode=block"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header set Access-Control-Allow-Origin "*"
+</IfModule>
+
+# Gzip Compression for High Performance
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/plain
+  AddOutputFilterByType DEFLATE text/html
+  AddOutputFilterByType DEFLATE text/xml
+  AddOutputFilterByType DEFLATE text/css
+  AddOutputFilterByType DEFLATE text/javascript
+  AddOutputFilterByType DEFLATE application/xml
+  AddOutputFilterByType DEFLATE application/xhtml+xml
+  AddOutputFilterByType DEFLATE application/rss+xml
+  AddOutputFilterByType DEFLATE application/javascript
+  AddOutputFilterByType DEFLATE application/x-javascript
+  AddOutputFilterByType DEFLATE application/json
+  AddOutputFilterByType DEFLATE image/svg+xml
+</IfModule>
+
+# Browser Caching Rules for Static Assets
+<IfModule mod_expires.c>
+  ExpiresActive On
+  ExpiresByType image/jpg "access plus 1 month"
+  ExpiresByType image/jpeg "access plus 1 month"
+  ExpiresByType image/gif "access plus 1 month"
+  ExpiresByType image/png "access plus 1 month"
+  ExpiresByType image/webp "access plus 1 month"
+  ExpiresByType image/svg+xml "access plus 1 month"
+  ExpiresByType text/css "access plus 1 year"
+  ExpiresByType application/javascript "access plus 1 year"
+  ExpiresByType application/x-javascript "access plus 1 year"
+  ExpiresByType application/pdf "access plus 1 day"
+</IfModule>

@@ -4,8 +4,22 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const { MongoClient } = require('mongodb');
+let mysql = null;
+try {
+  mysql = require('mysql2/promise');
+} catch (e) {
+  // mysql2 optional if not installed
+}
 
-// ─── Cloud Persistence via MongoDB Atlas ───
+// ─── Hostinger MySQL Database Persistence ───
+// Hostinger Business Plan provides MySQL/MariaDB on localhost:3306
+const MYSQL_HOST = process.env.MYSQL_HOST || (process.env.MYSQL_DATABASE ? 'localhost' : '');
+const MYSQL_PORT = parseInt(process.env.MYSQL_PORT || '3306', 10);
+const MYSQL_USER = process.env.MYSQL_USER || process.env.MYSQL_USERNAME || '';
+const MYSQL_PASSWORD = process.env.MYSQL_PASSWORD || '';
+const MYSQL_DATABASE = process.env.MYSQL_DATABASE || process.env.MYSQL_DB || '';
+
+// ─── Cloud Persistence via MongoDB Atlas (Optional) ───
 // Set MONGODB_URI in your environment / Render / Railway / .env:
 // Example: mongodb+srv://<username>:<password>@cluster0.mongodb.net/printcatalyst?retryWrites=true&w=majority
 const MONGODB_URI = process.env.MONGODB_URI || '';
@@ -197,6 +211,237 @@ const defaultData = {
   supportEnquiries: []
 };
 
+// ─── Hostinger MySQL Database Engine ───
+let _mysqlPool = null;
+let _mysqlSyncTimer = null;
+let _pendingMysqlData = null;
+
+async function ensureMySQLTables(conn) {
+  if (!conn) return;
+  try {
+    // 1. App State table (stores complete serialized JSON state document for 100% fidelity)
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS app_state (
+        state_key VARCHAR(64) PRIMARY KEY,
+        state_data LONGTEXT NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // 2. Relational Shops table (for phpMyAdmin viewing and management)
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS shops (
+        id VARCHAR(64) PRIMARY KEY,
+        slug VARCHAR(128) NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        owner_name VARCHAR(255),
+        email VARCHAR(255),
+        phone VARCHAR(32),
+        address TEXT,
+        upi_id VARCHAR(128),
+        plan VARCHAR(64),
+        agent_status VARCHAR(32) DEFAULT 'OFFLINE',
+        created_at DATETIME,
+        raw_json LONGTEXT,
+        INDEX idx_slug (slug),
+        INDEX idx_email (email)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // 3. Relational Orders table (for phpMyAdmin viewing, filtering, tallying)
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS orders (
+        id VARCHAR(64) PRIMARY KEY,
+        shop_id VARCHAR(64) NOT NULL,
+        customer_name VARCHAR(255),
+        customer_phone VARCHAR(32),
+        total_amount DECIMAL(10,2) DEFAULT 0.00,
+        payment_status VARCHAR(32) DEFAULT 'PENDING',
+        status VARCHAR(32) DEFAULT 'SUBMITTED',
+        pickup_token VARCHAR(32),
+        payment_method VARCHAR(32) DEFAULT 'UPI',
+        created_at DATETIME,
+        updated_at DATETIME,
+        raw_json LONGTEXT,
+        INDEX idx_shop_created (shop_id, created_at),
+        INDEX idx_status (status),
+        INDEX idx_pickup (pickup_token)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // 4. Relational Printers table
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS printers (
+        id VARCHAR(64) PRIMARY KEY,
+        shop_id VARCHAR(64) NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        model VARCHAR(255),
+        connection_type VARCHAR(64),
+        status VARCHAR(32) DEFAULT 'ONLINE',
+        is_default_mono BOOLEAN DEFAULT TRUE,
+        supports_color BOOLEAN DEFAULT TRUE,
+        ip_address VARCHAR(64),
+        INDEX idx_shop_printer (shop_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // 5. Support Enquiries table
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS support_enquiries (
+        id VARCHAR(64) PRIMARY KEY,
+        name VARCHAR(255),
+        email VARCHAR(255),
+        phone VARCHAR(32),
+        subject VARCHAR(255),
+        message TEXT,
+        status VARCHAR(32) DEFAULT 'OPEN',
+        created_at DATETIME
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    console.log('⚡ [DB] Hostinger MySQL tables verified & indexed in phpMyAdmin schema');
+  } catch (err) {
+    console.warn('⚠️ [DB] MySQL table verification notice:', err.message);
+  }
+}
+
+async function connectMySQL() {
+  if (!mysql || !MYSQL_DATABASE || (!MYSQL_USER && !MYSQL_HOST)) return null;
+  try {
+    _mysqlPool = mysql.createPool({
+      host: MYSQL_HOST || 'localhost',
+      port: MYSQL_PORT,
+      user: MYSQL_USER,
+      password: MYSQL_PASSWORD,
+      database: MYSQL_DATABASE,
+      waitForConnections: true,
+      connectionLimit: 15,
+      queueLimit: 0,
+      enableKeepAlive: true,
+      keepAliveInitialDelay: 10000
+    });
+
+    const conn = await _mysqlPool.getConnection();
+    console.log(`🐬 [DB] Connected to Hostinger MySQL successfully (Database: ${MYSQL_DATABASE} @ ${MYSQL_HOST}:${MYSQL_PORT})`);
+    await ensureMySQLTables(conn);
+    conn.release();
+    return _mysqlPool;
+  } catch (err) {
+    console.warn('⚠️ [DB] Hostinger MySQL connection error:', err.message);
+    _mysqlPool = null;
+    return null;
+  }
+}
+
+function mysqlSyncDebounced(data) {
+  if (!_mysqlPool) return;
+  _pendingMysqlData = data;
+  if (_mysqlSyncTimer) clearTimeout(_mysqlSyncTimer);
+  _mysqlSyncTimer = setTimeout(async () => {
+    const toSave = _pendingMysqlData;
+    _pendingMysqlData = null;
+    if (!_mysqlPool || !toSave) return;
+    try {
+      // 1. Update main app_state
+      const serialized = JSON.stringify({
+        shops: toSave.shops || [],
+        orders: toSave.orders || [],
+        pricing: toSave.pricing || {},
+        printers: toSave.printers || [],
+        counters: toSave.counters || {},
+        plans: toSave.plans || [],
+        supportEnquiries: toSave.supportEnquiries || [],
+        updatedAt: new Date().toISOString()
+      });
+
+      await _mysqlPool.query(
+        `INSERT INTO app_state (state_key, state_data, updated_at)
+         VALUES ('main_state', ?, NOW())
+         ON DUPLICATE KEY UPDATE state_data = VALUES(state_data), updated_at = NOW()`,
+        [serialized]
+      );
+
+      // 2. Mirror recent orders into relational table for phpMyAdmin inspection
+      if (Array.isArray(toSave.orders) && toSave.orders.length > 0) {
+        const recentOrders = toSave.orders.slice(0, 100);
+        for (const o of recentOrders) {
+          try {
+            await _mysqlPool.query(
+              `INSERT INTO orders (id, shop_id, customer_name, customer_phone, total_amount, payment_status, status, pickup_token, payment_method, created_at, updated_at, raw_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON DUPLICATE KEY UPDATE
+                 total_amount = VALUES(total_amount),
+                 payment_status = VALUES(payment_status),
+                 status = VALUES(status),
+                 updated_at = VALUES(updated_at),
+                 raw_json = VALUES(raw_json)`,
+              [
+                o.id,
+                o.shopId || 'shop_main',
+                o.customerName || 'Anonymous',
+                o.customerPhone || '',
+                parseFloat(o.totalAmount || o.finalAmount || 0),
+                o.paymentStatus || 'PENDING',
+                o.status || 'SUBMITTED',
+                o.pickupToken ? String(o.pickupToken) : null,
+                o.paymentMethod || 'UPI',
+                o.createdAt ? new Date(o.createdAt) : new Date(),
+                o.updatedAt ? new Date(o.updatedAt) : new Date(),
+                JSON.stringify(o)
+              ]
+            );
+          } catch (ordErr) {
+            // Non-blocking per-order mirror
+          }
+        }
+      }
+
+      // 3. Mirror shops into relational table for phpMyAdmin inspection
+      if (Array.isArray(toSave.shops) && toSave.shops.length > 0) {
+        for (const s of toSave.shops) {
+          try {
+            await _mysqlPool.query(
+              `INSERT INTO shops (id, slug, name, owner_name, email, phone, address, upi_id, plan, agent_status, created_at, raw_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON DUPLICATE KEY UPDATE
+                 slug = VALUES(slug),
+                 name = VALUES(name),
+                 owner_name = VALUES(owner_name),
+                 email = VALUES(email),
+                 phone = VALUES(phone),
+                 address = VALUES(address),
+                 upi_id = VALUES(upi_id),
+                 plan = VALUES(plan),
+                 agent_status = VALUES(agent_status),
+                 raw_json = VALUES(raw_json)`,
+              [
+                s.id,
+                s.slug || s.id,
+                s.name || 'Shop',
+                s.ownerName || '',
+                s.email || '',
+                s.phone || '',
+                s.address || '',
+                s.upiId || '',
+                s.plan || 'STARTER',
+                s.agentStatus || 'OFFLINE',
+                s.createdAt ? new Date(s.createdAt) : new Date(),
+                JSON.stringify(s)
+              ]
+            );
+          } catch (shpErr) {
+            // Non-blocking per-shop mirror
+          }
+        }
+      }
+
+      console.log('🐬 [DB] Hostinger MySQL sync OK');
+    } catch (e) {
+      console.warn('⚠️ [DB] Hostinger MySQL sync error:', e.message);
+    }
+  }, 1000);
+}
+
 // ─── Cloud Sync Helper (MongoDB Atlas) ───
 let _mongoClient = null;
 let _mongoDb = null;
@@ -233,12 +478,13 @@ async function connectMongoDB() {
   if (!MONGODB_URI) return null;
   try {
     _mongoClient = new MongoClient(MONGODB_URI, {
-      maxPoolSize: 50,       // Connection pooling: up to 50 concurrent sockets
-      minPoolSize: 10,       // Keep 10 idle connections ready
+      maxPoolSize: 20,       // Connection pooling
+      minPoolSize: 2,        // Idle connections ready
       maxIdleTimeMS: 30000,  // Close idle sockets after 30s
-      connectTimeoutMS: 10000,
-      socketTimeoutMS: 45000,
-      waitQueueTimeoutMS: 5000,
+      connectTimeoutMS: 3000,
+      serverSelectionTimeoutMS: 3000,
+      socketTimeoutMS: 4000,
+      waitQueueTimeoutMS: 3000,
       retryWrites: true,
       w: 'majority',
       family: 4,
@@ -362,13 +608,49 @@ class Database {
   }
 
   async _init() {
-    // 1. Try loading from MongoDB Atlas first (if configured)
+    // 1. Try Hostinger Native MySQL first (if configured in .env or Hostinger environment)
+    if (MYSQL_DATABASE && (MYSQL_USER || MYSQL_HOST)) {
+      const pool = await connectMySQL();
+      if (pool) {
+        try {
+          const [rows] = await pool.query(
+            "SELECT state_data FROM app_state WHERE state_key = 'main_state' LIMIT 1"
+          );
+          if (rows && rows.length > 0 && rows[0].state_data) {
+            const parsed = typeof rows[0].state_data === 'string' ? JSON.parse(rows[0].state_data) : rows[0].state_data;
+            if (parsed && Array.isArray(parsed.shops) && parsed.shops.length > 0) {
+              console.log(`🐬 [DB] Loaded data from Hostinger MySQL (${parsed.shops.length} shops, ${(parsed.orders || []).length} orders)`);
+              this.data = {
+                ...defaultData,
+                ...parsed,
+                counters: parsed.counters || { global: 0 }
+              };
+              this._rebuildIndexes();
+              this._saveLocal(this.data);
+              return;
+            }
+          }
+          console.log('🐬 [DB] Hostinger MySQL connected. Seeding initial data from local store...');
+          this.data = this._loadLocal();
+          this._rebuildIndexes();
+          mysqlSyncDebounced(this.data);
+          return;
+        } catch (mysqlErr) {
+          console.warn('⚠️ [DB] Error reading from Hostinger MySQL:', mysqlErr.message);
+        }
+      }
+    }
+
+    // 2. Try loading from MongoDB Atlas (if configured)
     if (MONGODB_URI) {
       const dbInstance = await connectMongoDB();
       if (dbInstance) {
         try {
           const colState = dbInstance.collection('app_state');
-          const doc = await colState.findOne({ _id: 'main_state' });
+          const doc = await Promise.race([
+            colState.findOne({ _id: 'main_state' }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('MongoDB query timed out after 3000ms')), 3000))
+          ]);
           if (doc && Array.isArray(doc.shops) && doc.shops.length > 0) {
             console.log(`🍃 [DB] Loaded data from MongoDB Atlas (${doc.shops.length} shops, ${(doc.orders || []).length} orders)`);
             this.data = {
@@ -388,11 +670,13 @@ class Database {
           }
         } catch (readErr) {
           console.warn('⚠️ [DB] Error reading from MongoDB Atlas:', readErr.message);
+          _mongoDb = null;
         }
       }
     }
 
-    // 2. Fall back to local file
+    // 3. Fall back to Hostinger Local NVMe/SSD storage (server/data/database.json)
+    console.log('📁 [DB] Using Hostinger Local SSD file persistence (server/data/database.json)');
     this.data = this._loadLocal();
     this._rebuildIndexes();
   }
@@ -461,17 +745,34 @@ class Database {
   save(data = this.data) {
     this._rebuildIndexes();
     this._saveLocal(data);
+    if (_mysqlPool) {
+      mysqlSyncDebounced(data);
+    }
     if (_mongoDb) {
       mongoSyncDebounced(data);
     }
   }
 
   isCloudEnabled() {
-    return Boolean(_mongoDb);
+    return Boolean(_mongoDb || _mysqlPool);
+  }
+
+  isMySQLEnabled() {
+    return Boolean(_mysqlPool);
+  }
+
+  getStorageMode() {
+    if (_mysqlPool) return 'HOSTINGER_MYSQL';
+    if (_mongoDb) return 'MONGODB_ATLAS';
+    return 'LOCAL_SSD_JSON';
   }
 
   getMongoDb() {
     return _mongoDb;
+  }
+
+  getMysqlPool() {
+    return _mysqlPool;
   }
 
   getShops() { return this.data.shops || []; }

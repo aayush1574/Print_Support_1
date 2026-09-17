@@ -427,6 +427,8 @@ app.get('/health', (req, res) => {
     status: 'ok',
     service: 'Print Support Backend API',
     uptimeSeconds: Math.floor(process.uptime()),
+    storageMode: db.getStorageMode ? db.getStorageMode() : (db.isCloudEnabled() ? 'CLOUD' : 'LOCAL'),
+    mysqlActive: db.isMySQLEnabled ? db.isMySQLEnabled() : false,
     timestamp: new Date().toISOString()
   });
 });
@@ -438,7 +440,8 @@ app.get('/api/v1/health', (req, res) => {
     version: '1.0.0',
     uptimeSeconds: Math.floor(process.uptime()),
     cloudEnabled: db.isCloudEnabled(),
-    storage: db.isCloudEnabled() ? 'mongodb_atlas' : 'local_json',
+    storageMode: db.getStorageMode ? db.getStorageMode() : (db.isCloudEnabled() ? 'mongodb_atlas' : 'local_json'),
+    mysqlActive: db.isMySQLEnabled ? db.isMySQLEnabled() : false,
     activeShops: db.getShops().length,
     activeWsClients: clients.size,
     timestamp: new Date().toISOString()
@@ -2011,15 +2014,17 @@ if (fs.existsSync(DIST_DIR)) {
 
 const HOST = '0.0.0.0';
 
-// Wait for database to finish loading from cloud before starting server
+// Wait for database to finish loading from cloud/disk before starting server
 db.ready().then(() => {
   server.listen(PORT, HOST, () => {
     console.log(`Print Support Backend Server running on http://${HOST}:${PORT}`);
-    if (db.isCloudEnabled()) {
+    const mode = db.getStorageMode ? db.getStorageMode() : 'LOCAL';
+    if (mode === 'HOSTINGER_MYSQL') {
+      console.log('🐬 Hostinger Native MySQL persistence active');
+    } else if (mode === 'MONGODB_ATLAS') {
       console.log('🍃 MongoDB Atlas cloud persistence active');
     } else {
-      console.log('📁 Local file persistence active (server/data/database.json)');
-      console.log('   Set MONGODB_URI env var to enable permanent MongoDB Atlas cloud storage.');
+      console.log('📁 Hostinger Local SSD persistence active (server/data/database.json)');
     }
   });
 }).catch((err) => {
@@ -2029,4 +2034,5 @@ db.ready().then(() => {
     console.log(`Print Support Backend Server running on http://${HOST}:${PORT} (local fallback)`);
   });
 });
+
 

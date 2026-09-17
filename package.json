@@ -2,7 +2,7 @@
   "name": "printsupport-automation",
   "version": "1.0.0",
   "description": "Print Support - Complete Print Shop Automation Software Suite",
-  "main": "server/server.js",
+  "main": "server.js",
   "engines": {
     "node": ">=18.0.0"
   },
@@ -12,7 +12,9 @@
     "client": "vite",
     "build": "vite build",
     "test": "node test-suite.js",
-    "start": "node server/server.js",
+    "start": "node server.js",
+    "hostinger:start": "node server.js",
+    "export:db": "node scripts/export-data.js",
     "agent": "node server/agent-client/print-agent.js"
   },
   "dependencies": {
@@ -30,6 +32,7 @@
     "lucide-react": "^0.475.0",
     "mongodb": "^7.6.0",
     "multer": "^1.4.5-lts.1",
+    "mysql2": "^3.24.4",
     "postcss": "^8.5.3",
     "qrcode": "^1.5.4",
     "react": "^18.3.1",
