@@ -13,9 +13,9 @@ import { API_BASE } from '../config';
 export default function SuperAdminPage() {
   const { admin, adminToken, loginAdmin, logoutAdmin } = useAuth();
 
-  // Login Form State (if not authenticated)
-  const [adminUsername, setAdminUsername] = useState('admin');
-  const [adminPassword, setAdminPassword] = useState('admin123');
+  // Login Form State (clean empty inputs so user types credentials securely)
+  const [adminUsername, setAdminUsername] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loggingIn, setLoggingIn] = useState(false);
 
@@ -246,7 +246,9 @@ export default function SuperAdminPage() {
                   type="text"
                   value={adminUsername}
                   onChange={(e) => setAdminUsername(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs focus:outline-none focus:border-amber-500"
+                  placeholder="Enter master username (e.g. admin)"
+                  autoComplete="off"
+                  className="w-full px-4 py-3 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs focus:outline-none focus:border-amber-500 transition-colors"
                   required
                 />
               </div>
@@ -257,15 +259,17 @@ export default function SuperAdminPage() {
                   type="password"
                   value={adminPassword}
                   onChange={(e) => setAdminPassword(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs focus:outline-none focus:border-amber-500"
+                  placeholder="Enter master password (e.g. admin123)"
+                  autoComplete="new-password"
+                  className="w-full px-4 py-3 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs focus:outline-none focus:border-amber-500 transition-colors"
                   required
                 />
               </div>
 
               <button
                 type="submit"
-                disabled={loggingIn}
-                className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-sm shadow-xl shadow-amber-600/30 flex items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-98 disabled:opacity-50"
+                disabled={loggingIn || !adminUsername.trim() || !adminPassword}
+                className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-sm shadow-xl shadow-amber-600/30 flex items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-98 disabled:opacity-50 cursor-pointer"
               >
                 <Lock className="w-4 h-4" />
                 <span>{loggingIn ? 'Authenticating...' : 'Access Admin Command Center'}</span>
@@ -274,7 +278,7 @@ export default function SuperAdminPage() {
             </form>
 
             <div className="p-3.5 rounded-xl bg-slate-900/60 border border-white/5 text-[11px] text-slate-400 space-y-1">
-              <span className="text-amber-400 font-bold block">Default Master Credentials:</span>
+              <span className="text-amber-400 font-bold block">Master Credentials Reference:</span>
               <div className="flex justify-between font-mono">
                 <span>Username: <strong className="text-white">admin</strong></span>
                 <span>Password: <strong className="text-white">admin123</strong></span>
@@ -327,8 +331,12 @@ export default function SuperAdminPage() {
             </button>
 
             <button
-              onClick={logoutAdmin}
-              className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-rose-300 hover:text-rose-200 border border-rose-500/30 font-bold text-xs flex items-center gap-1.5 transition-colors"
+              onClick={() => {
+                logoutAdmin();
+                setAdminUsername('');
+                setAdminPassword('');
+              }}
+              className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-rose-300 hover:text-rose-200 border border-rose-500/30 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
               title="Sign out of Super Admin"
             >
               <LogOut className="w-4 h-4" />
